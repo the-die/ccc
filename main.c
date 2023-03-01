@@ -21,6 +21,9 @@ struct Token {
   int len;        // Token length
 };
 
+// Input string
+static char *current_input;
+
 // Reports an error and exit.
 static void error(char *fmt, ...) {
   va_list ap;
@@ -49,6 +52,57 @@ static void error(char *fmt, ...) {
   exit(1);
 }
 
+// Reports an error location and exit.
+static void verror_at(char *loc, char *fmt, va_list ap) {
+  int pos = loc - current_input;
+  fprintf(stderr, "%s\n", current_input);
+  // int fprintf ( FILE * stream, const char * format, ... );
+  //
+  // Write formatted data to stream
+  //
+  // Writes the C string pointed by format to the stream. If format includes format specifiers
+  // (subsequences beginning with %), the additional arguments following format are formatted and
+  // inserted in the resulting string replacing their respective specifiers.
+  //
+  // After the format parameter, the function expects at least as many additional arguments as
+  // specified by format.
+  //
+  // C string that contains the text to be written to the stream.
+  // It can optionally contain embedded format specifiers that are replaced by the values specified
+  // in subsequent additional arguments and formatted as requested.
+  //
+  // A format specifier follows this prototype:
+  //
+  // %[flags][width][.precision][length]specifier
+  //
+  // width: description
+  //
+  // (number): Minimum number of characters to be printed. If the value to be printed is shorter
+  // than this number, the result is padded with blank spaces. The value is not truncated even if
+  // the result is larger.
+  //
+  // *: The width is not specified in the format string, but as an additional integer value argument
+  // preceding the argument that has to be formatted.
+  fprintf(stderr, "%*s", pos, ""); // print pos spaces.
+  fprintf(stderr, "^ ");
+  vfprintf(stderr, fmt, ap);
+  fprintf(stderr, "\n");
+  va_end(ap);
+  exit(1);
+}
+
+static void error_at(char *loc, char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  verror_at(loc, fmt, ap);
+}
+
+static void error_tok(Token *tok, char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  verror_at(tok->loc, fmt, ap);
+}
+
 // Consumes the current token if it matches `s`.
 static bool equal(Token *tok, char *op) {
   // strcmp?
@@ -58,14 +112,14 @@ static bool equal(Token *tok, char *op) {
 // Ensure that the current token is `s`.
 static Token *skip(Token *tok, char *s) {
   if (!equal(tok, s))
-    error("expected '%s'", s);
+    error_tok(tok, "expected '%s'", s);
   return tok->next;
 }
 
 // Ensure that the current token is TK_NUM.
 static int get_number(Token *tok) {
   if (tok->kind != TK_NUM)
-    error("expected a number");
+    error_tok(tok, "expected a number");
   return tok->val;
 }
 
@@ -85,8 +139,9 @@ static Token *new_token(TokenKind kind, char *start, char *end) {
   return tok;
 }
 
-// Tokenize `p` and returns new tokens.
-static Token *tokenize(char *p) {
+// Tokenize `current_input` and returns new tokens.
+static Token *tokenize(void) {
+  char *p = current_input;
   Token head = {};
   Token *cur = &head;
 
@@ -119,7 +174,7 @@ static Token *tokenize(char *p) {
       continue;
     }
 
-    error("invalid token");
+    error_at(p, "invalid token");
   }
 
   cur = cur->next = new_token(TK_EOF, p, p);
@@ -130,7 +185,8 @@ int main(int argc, char **argv) {
   if (argc != 2)
     error("%s: invalid number of arguments", argv[0]);
 
-  Token *tok = tokenize(argv[1]);
+  current_input = argv[1];
+  Token *tok = tokenize();
 
   // https://sourceware.org/binutils/docs/as.html
   // https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html
