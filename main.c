@@ -1,13 +1,136 @@
+#include <ctype.h>
+#include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
-int main(int argc, char **argv) {
-  if (argc != 2) {
-    fprintf(stderr, "%s: invalid number of arguments\n", argv[0]);
-    return 1;
+typedef enum {
+  TK_PUNCT, // Punctuators
+  TK_NUM,   // Numeric literals
+  TK_EOF,   // End-of-file markers
+} TokenKind;
+
+// Token type
+typedef struct Token Token;
+struct Token {
+  TokenKind kind; // Token kind
+  Token *next;    // Next token
+  int val;        // If kind is TK_NUM, its value
+  char *loc;      // Token location
+  int len;        // Token length
+};
+
+// Reports an error and exit.
+static void error(char *fmt, ...) {
+  va_list ap;
+
+  // void va_start (va_list ap, paramN);
+  // Initialize a variable argument list
+  // Initializes ap to retrieve the additional arguments after parameter paramN.
+  // A function that invokes va_start, shall also invoke va_end before it returns.
+  va_start(ap, fmt);
+
+  // int vfprintf ( FILE * stream, const char * format, va_list arg );
+  // Write formatted data from variable argument list to stream
+  // Writes the C string pointed by format to the stream, replacing any format specifier in the same
+  // way as printf does, but using the elements in the variable argument list identified by arg
+  // instead of additional function arguments.
+  vfprintf(stderr, fmt, ap);
+  fprintf(stderr, "\n");
+
+  // void va_end (va_list ap);
+  // End using variable argument list
+  // Performs the appropriate actions to facilitate a normal return by a function that has used the
+  // va_list object ap to retrieve its additional arguments.
+  // This macro should be invoked before the function returns whenever va_start has been invoked
+  // from that function.
+  va_end(ap);
+  exit(1);
+}
+
+// Consumes the current token if it matches `s`.
+static bool equal(Token *tok, char *op) {
+  // strcmp?
+  return memcmp(tok->loc, op, tok->len) == 0 && op[tok->len] == '\0';
+}
+
+// Ensure that the current token is `s`.
+static Token *skip(Token *tok, char *s) {
+  if (!equal(tok, s))
+    error("expected '%s'", s);
+  return tok->next;
+}
+
+// Ensure that the current token is TK_NUM.
+static int get_number(Token *tok) {
+  if (tok->kind != TK_NUM)
+    error("expected a number");
+  return tok->val;
+}
+
+// Create a new token.
+static Token *new_token(TokenKind kind, char *start, char *end) {
+  // void* calloc (size_t num, size_t size);
+  // Allocate and zero-initialize array
+  // Allocates a block of memory for an array of num elements, each of them size bytes long, and
+  // initializes all its bits to zero.
+  // The effective result is the allocation of a zero-initialized memory block of (num*size) bytes.
+  // If size is zero, the return value depends on the particular library implementation (it may or
+  // may not be a null pointer), but the returned pointer shall not be dereferenced.
+  Token *tok = calloc(1, sizeof(Token));
+  tok->kind = kind;
+  tok->loc = start;
+  tok->len = end - start;
+  return tok;
+}
+
+// Tokenize `p` and returns new tokens.
+static Token *tokenize(char *p) {
+  Token head = {};
+  Token *cur = &head;
+
+  while (*p) {
+    // Skip whitespace characters.
+    if (isspace(*p)) {
+      p++;
+      continue;
+    }
+
+    // Numeric literal
+    if (isdigit(*p)) {
+      cur = cur->next = new_token(TK_NUM, p, p);
+      char *q = p;
+      // unsigned long int strtoul (const char* str, char** endptr, int base);
+      // Convert string to unsigned long integer
+      // Parses the C-string str, interpreting its content as an integral number of the specified
+      // base, which is returned as an value of type unsigned long int.
+      // This function operates like strtol to interpret the string, but produces numbers of type
+      // unsigned long int (see strtol for details on the interpretation process).
+      cur->val = strtoul(p, &p, 10);
+      cur->len = p - q;
+      continue;
+    }
+
+    // Punctuator
+    if (*p == '+' || *p == '-') {
+      cur = cur->next = new_token(TK_PUNCT, p, p + 1);
+      p++;
+      continue;
+    }
+
+    error("invalid token");
   }
 
-  char *p = argv[1];
+  cur = cur->next = new_token(TK_EOF, p, p);
+  return head.next;
+}
+
+int main(int argc, char **argv) {
+  if (argc != 2)
+    error("%s: invalid number of arguments", argv[0]);
+
+  Token *tok = tokenize(argv[1]);
 
   // https://sourceware.org/binutils/docs/as.html
   // https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html
@@ -51,11 +174,14 @@ int main(int argc, char **argv) {
   // Parses the C-string str interpreting its content as an integral number of the specified base,
   // which is returned as a long int value. If endptr is not a null pointer, the function also sets
   // the value of endptr to point to the first character after the number.
-  printf("  mov $%ld, %%rax\n", strtol(p, &p, 10));
+  //
+  // The first token must be a number
+  printf("  mov $%d, %%rax\n", get_number(tok));
+  tok = tok->next;
 
-  while (*p) {
-    if (*p == '+') {
-      p++;
+  // ... followed by either `+ <number>` or `- <number>`.
+  while (tok->kind != TK_EOF) {
+    if (equal(tok, "+")) {
       // ADD—Add
       // Adds the destination operand (first operand) and the source operand (second operand) and
       // then stores the result in the destination operand. The destination operand can be a
@@ -63,24 +189,20 @@ int main(int argc, char **argv) {
       // memory location. (However, two memory operands cannot be used in one instruction.) When an
       // immediate value is used as an operand, it is sign-extended to the length of the destination
       // operand format.
-      printf("  add $%ld, %%rax\n", strtol(p, &p, 10));
+      printf("  add $%d, %%rax\n", get_number(tok->next));
+      tok = tok->next->next;
       continue;
     }
 
-    if (*p == '-') {
-      p++;
-      // SUB—Subtract
-      // Subtracts the second operand (source operand) from the first operand (destination operand)
-      // and stores the result in the destination operand. The destination operand can be a register
-      // or a memory location; the source operand can be an immediate, register, or memory location.
-      // (However, two memory operands cannot be used in one instruction.) When an immediate value
-      // is used as an operand, it is sign-extended to the length of the destination operand format.
-      printf("  sub $%ld, %%rax\n", strtol(p, &p, 10));
-      continue;
-    }
-
-    fprintf(stderr, "unexpected character: '%c'\n", *p);
-    return 1;
+    tok = skip(tok, "-");
+    // SUB—Subtract
+    // Subtracts the second operand (source operand) from the first operand (destination operand)
+    // and stores the result in the destination operand. The destination operand can be a register
+    // or a memory location; the source operand can be an immediate, register, or memory location.
+    // (However, two memory operands cannot be used in one instruction.) When an immediate value is
+    // used as an operand, it is sign-extended to the length of the destination operand format.
+    printf("  sub $%d, %%rax\n", get_number(tok));
+    tok = tok->next;
   }
 
   // RET—Return From Procedure
