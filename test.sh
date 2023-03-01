@@ -1,4 +1,24 @@
-#!/bin/bash
+#! /bin/bash
+
+# https://www.gnu.org/software/bash/manual/bash.html
+
+# In a non-interactive shell, or an interactive shell in which the interactive_comments option to
+# the shopt builtin is enabled (see The Shopt Builtin), a word beginning with ‘#’ causes that word
+# and all remaining characters on that line to be ignored. An interactive shell without the
+# interactive_comments option enabled does not allow comments. The interactive_comments option is on
+# by default in interactive shells. See Interactive Shells, for a description of what makes a shell
+# interactive.
+
+# Most versions of Unix make this a part of the operating system’s command execution mechanism. If
+# the first line of a script begins with the two characters ‘#!’, the remainder of the line
+# specifies an interpreter for the program and, depending on the operating system, one or more
+# optional arguments for that interpreter. Thus, you can specify Bash, awk, Perl, or some other
+# interpreter and write the rest of the script file in that language.
+
+# Bash scripts often begin with #! /bin/bash (assuming that Bash has been installed in /bin), since
+# this ensures that Bash will be used to interpret the script, even if it is executed under another
+# shell. It’s a common idiom to use env to find bash even if it’s been installed in another
+# directory: #!/usr/bin/env bash will find the first occurrence of bash in $PATH.
 
 assert() {
   expected="$1"
@@ -32,5 +52,6 @@ assert() {
 
 assert 0 0
 assert 42 42
+assert 21 '5+20-4'
 
 echo OK

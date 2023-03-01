@@ -7,6 +7,8 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  char *p = argv[1];
+
   // https://sourceware.org/binutils/docs/as.html
   // https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html
   // https://gitlab.com/x86-psABIs/x86-64-ABI
@@ -43,7 +45,43 @@ int main(int argc, char **argv) {
   // System V AMD64 ABI
   // %rax: temporary register; with variable arguments passes information about
   // the number of vector registers used; 1st return register
-  printf("  mov $%d, %%rax\n", atoi(argv[1]));
+
+  // long int strtol (const char* str, char** endptr, int base);
+  // Convert string to long integer
+  // Parses the C-string str interpreting its content as an integral number of the specified base,
+  // which is returned as a long int value. If endptr is not a null pointer, the function also sets
+  // the value of endptr to point to the first character after the number.
+  printf("  mov $%ld, %%rax\n", strtol(p, &p, 10));
+
+  while (*p) {
+    if (*p == '+') {
+      p++;
+      // ADD—Add
+      // Adds the destination operand (first operand) and the source operand (second operand) and
+      // then stores the result in the destination operand. The destination operand can be a
+      // register or a memory location; the source operand can be an immediate, a register, or a
+      // memory location. (However, two memory operands cannot be used in one instruction.) When an
+      // immediate value is used as an operand, it is sign-extended to the length of the destination
+      // operand format.
+      printf("  add $%ld, %%rax\n", strtol(p, &p, 10));
+      continue;
+    }
+
+    if (*p == '-') {
+      p++;
+      // SUB—Subtract
+      // Subtracts the second operand (source operand) from the first operand (destination operand)
+      // and stores the result in the destination operand. The destination operand can be a register
+      // or a memory location; the source operand can be an immediate, register, or memory location.
+      // (However, two memory operands cannot be used in one instruction.) When an immediate value
+      // is used as an operand, it is sign-extended to the length of the destination operand format.
+      printf("  sub $%ld, %%rax\n", strtol(p, &p, 10));
+      continue;
+    }
+
+    fprintf(stderr, "unexpected character: '%c'\n", *p);
+    return 1;
+  }
 
   // RET—Return From Procedure
   // Transfers program control to a return address located on the top of the
