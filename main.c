@@ -144,6 +144,29 @@ static Token *new_token(TokenKind kind, char *start, char *end) {
   return tok;
 }
 
+static bool startswith(char *p, char *q) {
+  // int strncmp ( const char * str1, const char * str2, size_t num );
+  // Compare characters of two strings
+  // Compares up to num characters of the C string str1 to those of the C string str2.
+  // This function starts comparing the first character of each string. If they are equal to each
+  // other, it continues with the following pairs until the characters differ, until a terminating
+  // null-character is reached, or until num characters match in both strings, whichever happens
+  // first.
+  return strncmp(p, q, strlen(q)) == 0;
+}
+
+// Read a punctuator token from p and returns its length.
+static int read_punct(char *p) {
+  if (startswith(p, "==") || startswith(p, "!=") ||
+      startswith(p, "<=") || startswith(p, ">="))
+    return 2;
+
+  // int ispunct ( int c );
+  // Check if character is a punctuation character
+  // Checks whether c is a punctuation character.
+  return ispunct(*p) ? 1 : 0;
+}
+
 // Tokenize `current_input` and returns new tokens.
 static Token *tokenize(void) {
   char *p = current_input;
@@ -173,9 +196,10 @@ static Token *tokenize(void) {
     }
 
     // Punctuators
-    if (ispunct(*p)) {
-      cur = cur->next = new_token(TK_PUNCT, p, p + 1);
-      p++;
+    int punct_len = read_punct(p);
+    if (punct_len) {
+      cur = cur->next = new_token(TK_PUNCT, p, p + punct_len);
+      p += cur->len;
       continue;
     }
 
@@ -196,6 +220,10 @@ typedef enum {
   ND_MUL, // *
   ND_DIV, // /
   ND_NEG, // unary -
+  ND_EQ,  // ==
+  ND_NE,  // !=
+  ND_LT,  // <
+  ND_LE,  // <=
   ND_NUM, // Integer
 } NodeKind;
 
@@ -242,25 +270,89 @@ static Node *new_num(int val) {
 }
 
 static Node *expr(Token **rest, Token *tok);
+static Node *equality(Token **rest, Token *tok);
+static Node *relational(Token **rest, Token *tok);
+static Node *add(Token **rest, Token *tok);
 static Node *mul(Token **rest, Token *tok);
 static Node *unary(Token **rest, Token *tok);
 static Node *primary(Token **rest, Token *tok);
 
 // A recursive descendent parser
 //
-// expr = mul ("+" mul | "-" mul)*
+// expr = equality
+// equality = relational ("==" relational | "!=" relational)*
+// relational = add ("<" add | "<=" add | ">" add | ">=" add)*
+// add = mul ("+" mul | "-" mul)*
 // mul = unary ("*" unary | "/" unary)*
 // unary = ("+" | "-") unary
 //       | primary
 // primary = "(" expr ")" | num
 //
 // expr: Expression
-// mul: Multiplication or division
-// unary: Unary plus and minus
+// equality: == !=
+// relational: < <= > >=
+// add: + -
+// mul: * /
+// unary: + -
 // primary: The most basic word in syntax
 
-// expr = mul ("+" mul | "-" mul)*
+// expr = equality
 static Node *expr(Token **rest, Token *tok) {
+  return equality(rest, tok);
+}
+
+// equality = relational ("==" relational | "!=" relational)*
+static Node *equality(Token **rest, Token *tok) {
+  Node *node = relational(&tok, tok);
+
+  for (;;) {
+    if (equal(tok, "==")) {
+      node = new_binary(ND_EQ, node, relational(&tok, tok->next));
+      continue;
+    }
+
+    if (equal(tok, "!=")) {
+      node = new_binary(ND_NE, node, relational(&tok, tok->next));
+      continue;
+    }
+
+    *rest = tok;
+    return node;
+  }
+}
+
+// relational = add ("<" add | "<=" add | ">" add | ">=" add)*
+static Node *relational(Token **rest, Token *tok) {
+  Node *node = add(&tok, tok);
+
+  for (;;) {
+    if (equal(tok, "<")) {
+      node = new_binary(ND_LT, node, add(&tok, tok->next));
+      continue;
+    }
+
+    if (equal(tok, "<=")) {
+      node = new_binary(ND_LE, node, add(&tok, tok->next));
+      continue;
+    }
+
+    if (equal(tok, ">")) {
+      node = new_binary(ND_LT, add(&tok, tok->next), node);
+      continue;
+    }
+
+    if (equal(tok, ">=")) {
+      node = new_binary(ND_LE, add(&tok, tok->next), node);
+      continue;
+    }
+
+    *rest = tok;
+    return node;
+  }
+}
+
+// add = mul ("+" mul | "-" mul)*
+static Node *add(Token **rest, Token *tok) {
   Node *node = mul(&tok, tok);
 
   for (;;) {
@@ -437,6 +529,43 @@ static void gen_expr(Node *node) {
     // RDX:RAX by the source operand. RAX contains a 64-bit quotient; RDX contains a 64-bit
     // remainder.
     printf("  idiv %%rdi\n");
+    return;
+  case ND_EQ:
+  case ND_NE:
+  case ND_LT:
+  case ND_LE:
+    // CMP—Compare Two operands
+    // Compares the first source operand with the second source operand and sets the status flags
+    // in the EFLAGS register according to the results. The comparison is performed by subtracting
+    // the second operand from the first operand and then setting the status flags in the same
+    // manner as the SUB instruction. When an immediate value is used as an operand, it is
+    // sign-extended to the length of the first operand.
+    printf("  cmp %%rdi, %%rax\n");
+
+    // SETcc—Set Byte on Condition
+    // Sets the destination operand to 0 or 1 depending on the settings of the status flags (CF, SF,
+    // OF, ZF, and PF) in the EFLAGS register. The destination operand points to a byte register or
+    // a byte in memory. The condition code suffix(cc) indicates the condition being tested for.
+    //
+    // The terms “above” and “below” are associated with the CF flag and refer to the relationship
+    // between two unsigned integer values. The terms “greater” and “less” are associated with the
+    // SF and OF flags and refer to the relationship between two signed integer values.
+    if (node->kind == ND_EQ)
+      printf("  sete %%al\n");
+    else if (node->kind == ND_NE)
+      printf("  setne %%al\n");
+    else if (node->kind == ND_LT)
+      printf("  setl %%al\n");
+    else if (node->kind == ND_LE)
+      printf("  setle %%al\n");
+
+    // MOVZX—Move With Zero-Extend
+    // Copies the contents of the source operand (register or memory location) to the destination
+    // operand (register) and zero extends the value. The size of the converted value depends on the
+    // operand-size attribute.
+    //
+    // movzb?
+    printf("  movzx %%al, %%rax\n");
     return;
   }
 
