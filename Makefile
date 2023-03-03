@@ -44,13 +44,65 @@
 #   useful to enable legacy code to link without errors.
 CFLAGS=-std=c11 -g -fno-common
 
+# Wildcard expansion happens automatically in rules. But wildcard expansion does not normally take
+# place when a variable is set, or inside the arguments of a function. If you want to do wildcard
+# expansion in such places, you need to use the wildcard function, like this:
+#
+#   $(wildcard pattern…)
+#
+# This string, used anywhere in a makefile, is replaced by a space-separated list of names of
+# existing files that match one of the given file name patterns. If no existing file name matches a
+# pattern, then that pattern is omitted from the output of the wildcard function. Note that this is
+# different from how unmatched wildcards behave in rules, where they are used verbatim rather than
+# ignored (see Pitfalls of Using Wildcards).
+#
+# As with wildcard expansion in rules, the results of the wildcard function are sorted. But again,
+# each individual expression is sorted separately, so ‘$(wildcard *.c *.h)’ will expand to all files
+# matching ‘.c’, sorted, followed by all files matching ‘.h’, sorted.
+SRCS=$(wildcard *.c)
+
+# A substitution reference substitutes the value of a variable with alterations that you specify. It
+# has the form ‘$(var:a=b)’ (or ‘${var:a=b}’) and its meaning is to take the value of the variable
+# var, replace every a at the end of a word with b in that value, and substitute the resulting
+# string.
+#
+# When we say “at the end of a word”, we mean that a must appear either followed by whitespace or at
+# the end of the value in order to be replaced; other occurrences of a in the value are unaltered.
+# For example:
+#
+#   foo := a.o b.o l.a c.o
+#   bar := $(foo:.o=.c)
+#
+# sets ‘bar’ to ‘a.c b.c l.a c.c’. See Setting Variables.
+#
+# A substitution reference is shorthand for the patsubst expansion function (see Functions for
+# String Substitution and Analysis): ‘$(var:a=b)’ is equivalent to ‘$(patsubst %a,%b,var)’. We
+# provide substitution references as well as patsubst for compatibility with other implementations
+# of make.
+OBJS=$(SRCS:.c=.o)
+
 # LDFLAGS
 #   Extra flags to give to compilers when they are supposed to invoke the linker, ‘ld’, such as -L.
 #   Libraries (-lfoo) should be added to the LDLIBS variable instead.
 # CC
 #   Program for compiling C programs; default ‘cc’.
-chibicc: main.o
-	$(CC) -o chibicc main.o $(LDFLAGS)
+
+# $@
+# The file name of the target of the rule. If the target is an archive member, then ‘$@’ is the name
+# of the archive file. In a pattern rule that has multiple targets (see Introduction to Pattern
+# Rules), ‘$@’ is the name of whichever target caused the rule’s recipe to be run.
+#
+# $^
+# The names of all the prerequisites, with spaces between them. For prerequisites which are archive
+# members, only the named member is used (see Using make to Update Archive Files). A target has only
+# one prerequisite on each other file it depends on, no matter how many times each file is listed as
+# a prerequisite. So if you list a prerequisite more than once for a target, the value of $^
+# contains just one copy of the name. This list does not contain any of the order-only
+# prerequisites; for those see the ‘$|’ variable, below.
+chibicc: $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+$(OBJS): chibicc.h
 
 test: chibicc
 	./test.sh
