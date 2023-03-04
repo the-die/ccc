@@ -2,6 +2,7 @@
 
 static Node *expr(Token **rest, Token *tok);
 static Node *expr_stmt(Token **rest, Token *tok);
+static Node *assign(Token **rest, Token *tok);
 static Node *equality(Token **rest, Token *tok);
 static Node *relational(Token **rest, Token *tok);
 static Node *add(Token **rest, Token *tok);
@@ -42,11 +43,18 @@ static Node *new_num(int val) {
   return node;
 }
 
+static Node *new_var_node(char name) {
+  Node *node = new_node(ND_VAR);
+  node->name = name;
+  return node;
+}
+
 // A recursive descendent parser
 //
 // stmt = expr-stmt
 // expr-stmt = expr ";"
-// expr = equality
+// expr = assign
+// assign = equality ("=" assign)?
 // equality = relational ("==" relational | "!=" relational)*
 // relational = add ("<" add | "<=" add | ">" add | ">=" add)*
 // add = mul ("+" mul | "-" mul)*
@@ -58,6 +66,7 @@ static Node *new_num(int val) {
 // stmt: Statement
 // expr-stmt: Expression statement
 // expr: Expression
+// assign: =
 // equality: == !=
 // relational: < <= > >=
 // add: + -
@@ -77,9 +86,21 @@ static Node *expr_stmt(Token **rest, Token *tok) {
   return node;
 }
 
-// expr = equality
+// expr = assign
 static Node *expr(Token **rest, Token *tok) {
-  return equality(rest, tok);
+  return assign(rest, tok);
+}
+
+// assign = equality ("=" assign)?
+//
+// right recursive
+// a == b = c: not an lvalue
+static Node *assign(Token **rest, Token *tok) {
+  Node *node = equality(&tok, tok);
+  if (equal(tok, "="))
+    node = new_binary(ND_ASSIGN, node, assign(&tok, tok->next));
+  *rest = tok;
+  return node;
 }
 
 // equality = relational ("==" relational | "!=" relational)*
@@ -184,11 +205,17 @@ static Node *unary(Token **rest, Token *tok) {
   return primary(rest, tok);
 }
 
-// primary = "(" expr ")" | num
+// primary = "(" expr ")" | ident | num
 static Node *primary(Token **rest, Token *tok) {
   if (equal(tok, "(")) {
     Node *node = expr(&tok, tok->next);
     *rest = skip(tok, ")");
+    return node;
+  }
+
+  if (tok->kind == TK_IDENT) {
+    Node *node = new_var_node(*tok->loc);
+    *rest = tok->next;
     return node;
   }
 
