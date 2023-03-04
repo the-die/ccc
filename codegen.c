@@ -148,6 +148,15 @@ static void gen_expr(Node *node) {
   error("invalid expression");
 }
 
+static void gen_stmt(Node *node) {
+  if (node->kind == ND_EXPR_STMT) {
+    gen_expr(node->lhs);
+    return;
+  }
+
+  error("invalid statement");
+}
+
 void codegen(Node *node) {
   // https://sourceware.org/binutils/docs/as.html
   // https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html
@@ -174,7 +183,10 @@ void codegen(Node *node) {
   // definition overrides any other definitions.
   printf("main:\n");
 
-  gen_expr(node);
+  for (Node *n = node; n; n = n->next) {
+    gen_stmt(n);
+    assert(depth == 0);
+  }
 
   // RET—Return From Procedure
   // Transfers program control to a return address located on the top of the
@@ -182,6 +194,4 @@ void codegen(Node *node) {
   // and the return is made to the instruction that follows the CALL
   // instruction.
   printf("  ret\n");
-
-  assert(depth == 0);
 }
