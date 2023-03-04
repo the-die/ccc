@@ -18,11 +18,16 @@ static void pop(char *arg) {
   depth--;
 }
 
+// Round up `n` to the nearest multiple of `align`. For instance,
+// align_to(5, 8) returns 8 and align_to(11, 8) returns 16.
+static int align_to(int n, int align) {
+  return (n + align - 1) / align * align;
+}
+
 // Compute the absolute address of a given node.
 // It's an error if a given node does not reside in memory.
 static void gen_addr(Node *node) {
   if (node->kind == ND_VAR) {
-    int offset = (node->name - 'a' + 1) * 8;
     // LEA—Load Effective Address
     // Computes the effective address of the second operand (the source operand) and stores it in
     // the first operand (destination operand). The source operand is a memory address (offset part)
@@ -31,7 +36,7 @@ static void gen_addr(Node *node) {
     // performed by this instruction, as shown in the following table. The operand-size attribute of
     // the instruction is determined by the chosen register; the address-size attribute is
     // determined by the attribute of the code segment.
-    printf("  lea %d(%%rbp), %%rax\n", -offset);
+    printf("  lea %d(%%rbp), %%rax\n", node->var->offset);
     return;
   }
 
@@ -189,7 +194,21 @@ static void gen_stmt(Node *node) {
   error("invalid statement");
 }
 
-void codegen(Node *node) {
+// Assign offsets to local variables.
+static void assign_lvar_offsets(Function *prog) {
+  int offset = 0;
+  for (Obj *var = prog->locals; var; var = var->next) {
+    offset += 8;
+    var->offset = -offset;
+  }
+  // %rsp: The stack pointer holds the address of the byte with lowest address which is part of the
+  // stack. It is guaranteed to be 16-byte aligned at process entry.
+  prog->stack_size = align_to(offset, 16);
+}
+
+void codegen(Function *prog) {
+  assign_lvar_offsets(prog);
+
   // https://sourceware.org/binutils/docs/as.html
   // https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html
   // https://gitlab.com/x86-psABIs/x86-64-ABI
@@ -220,11 +239,9 @@ void codegen(Node *node) {
   printf("  push %%rbp\n");
   // %rsp: stack pointer
   printf("  mov %%rsp, %%rbp\n");
-  // 26 lowercase letters, 8 bytes each
-  // 26 * 8 = 208
-  printf("  sub $208, %%rsp\n");
+  printf("  sub $%d, %%rsp\n", prog->stack_size);
 
-  for (Node *n = node; n; n = n->next) {
+  for (Node *n = prog->body; n; n = n->next) {
     gen_stmt(n);
     assert(depth == 0);
   }

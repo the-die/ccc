@@ -1,5 +1,9 @@
 #include "chibicc.h"
 
+// All local variable instances created during parsing are
+// accumulated to this list.
+Obj *locals;
+
 static Node *expr(Token **rest, Token *tok);
 static Node *expr_stmt(Token **rest, Token *tok);
 static Node *assign(Token **rest, Token *tok);
@@ -9,6 +13,14 @@ static Node *add(Token **rest, Token *tok);
 static Node *mul(Token **rest, Token *tok);
 static Node *unary(Token **rest, Token *tok);
 static Node *primary(Token **rest, Token *tok);
+
+// Find a local variable by name.
+static Obj *find_var(Token *tok) {
+  for (Obj *var = locals; var; var = var->next)
+    if (strlen(var->name) == tok->len && !strncmp(tok->loc, var->name, tok->len))
+      return var;
+  return NULL;
+}
 
 static Node *new_node(NodeKind kind) {
   Node *node = calloc(1, sizeof(Node));
@@ -43,10 +55,18 @@ static Node *new_num(int val) {
   return node;
 }
 
-static Node *new_var_node(char name) {
+static Node *new_var_node(Obj *var) {
   Node *node = new_node(ND_VAR);
-  node->name = name;
+  node->var = var;
   return node;
+}
+
+static Obj *new_lvar(char *name) {
+  Obj *var = calloc(1, sizeof(Obj));
+  var->name = name;
+  var->next = locals;
+  locals = var;
+  return var;
 }
 
 // A recursive descendent parser
@@ -214,9 +234,18 @@ static Node *primary(Token **rest, Token *tok) {
   }
 
   if (tok->kind == TK_IDENT) {
-    Node *node = new_var_node(*tok->loc);
+    Obj *var = find_var(tok);
+    if (!var)
+      // char *strndup(const char *s, size_t n);
+      // _POSIX_C_SOURCE >= 200809L
+      // The strdup() function returns a pointer to a new string which is a duplicate of the string
+      // s.  Memory for the new string is obtained with malloc(3), and can be freed with free(3).
+      //
+      // The strndup() function is similar, but copies at most n bytes. If s is longer than n, only
+      // n bytes are copied, and a terminating null byte ('\0') is added.
+      var = new_lvar(strndup(tok->loc, tok->len));
     *rest = tok->next;
-    return node;
+    return new_var_node(var);
   }
 
   if (tok->kind == TK_NUM) {
@@ -229,10 +258,15 @@ static Node *primary(Token **rest, Token *tok) {
 }
 
 // program = stmt*
-Node *parse(Token *tok) {
+Function *parse(Token *tok) {
   Node head = {};
   Node *cur = &head;
+
   while (tok->kind != TK_EOF)
     cur = cur->next = stmt(&tok, tok);
-  return head.next;
+
+  Function *prog = calloc(1, sizeof(Function));
+  prog->body = head.next;
+  prog->locals = locals;
+  return prog;
 }
