@@ -2,6 +2,11 @@
 
 static int depth;
 
+static int count(void) {
+  static int i = 1;
+  return i++;
+}
+
 static void push(void) {
   // PUSH—Push Word, Doubleword, or Quadword Onto the Stack
   // Decrements the stack pointer and then stores the source operand on the top of the stack.
@@ -187,6 +192,26 @@ static void gen_expr(Node *node) {
 
 static void gen_stmt(Node *node) {
   switch (node->kind) {
+  case ND_IF: {
+    int c = count();
+    gen_expr(node->cond);
+    printf("  cmp $0, %%rax\n");
+    // Jcc—Jump if Condition Is Met
+    // Checks the state of one or more of the status flags in the EFLAGS register (CF, OF, PF, SF,
+    // and ZF) and, if the flags are in the specified state (condition), performs a jump to the
+    // target instruction specified by the destination operand. A condition code (cc) is associated
+    // with each instruction to indicate the condition being tested for. If the condition is not
+    // satisfied, the jump is not performed and execution continues with the instruction following
+    // the Jcc instruction.
+    printf("  je  .L.else.%d\n", c);
+    gen_stmt(node->then);
+    printf("  jmp .L.end.%d\n", c);
+    printf(".L.else.%d:\n", c);
+    if (node->els)
+      gen_stmt(node->els);
+    printf(".L.end.%d:\n", c);
+    return;
+  }
   case ND_BLOCK:
     for (Node *n = node->body; n; n = n->next)
       gen_stmt(n);
