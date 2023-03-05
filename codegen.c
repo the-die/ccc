@@ -186,7 +186,39 @@ static void gen_expr(Node *node) {
 }
 
 static void gen_stmt(Node *node) {
-  if (node->kind == ND_EXPR_STMT) {
+  switch (node->kind) {
+  case ND_RETURN:
+    gen_expr(node->lhs);
+    // JMP—Jump
+    // Transfers program control to a different point in the instruction stream without recording
+    // return information. The destination (target) operand specifies the address of the instruction
+    // being jumped to. This operand can be an immediate value, a general-purpose register, or a
+    // memory location.
+    //
+    // Symbol names begin with a letter or with one of ‘._’. On most machines, you can also use $
+    // in symbol names; exceptions are noted in Machine Dependent Features. That character may be
+    // followed by any string of digits, letters, dollar signs (unless otherwise noted for a
+    // particular target machine), and underscores. These restrictions do not apply when quoting
+    // symbol names by ‘"’, which is permitted for most targets. Escaping characters in quoted
+    // symbol names with ‘\’ generally extends only to ‘\’ itself and ‘"’, at the time of writing.
+    //
+    // Case of letters is significant: foo is a different symbol name than Foo.
+    //
+    // Symbol names do not start with a digit. An exception to this rule is made for Local Labels.
+    // See below.
+    //
+    // Local Symbol Names
+    // A local symbol is any symbol beginning with certain local label prefixes. By default, the
+    // local label prefix is ‘.L’ for ELF systems or ‘L’ for traditional a.out systems, but each
+    // target may have its own set of local label prefixes. On the HPPA local symbols begin with
+    // ‘L$’.
+    //
+    // Local symbols are defined and used within the assembler, but they are normally not saved in
+    // object files. Thus, they are not visible when debugging. You may use the ‘-L’ option (see
+    // Include Local Symbols) to retain the local symbols in the object files.
+    printf("  jmp .L.return\n");
+    return;
+  case ND_EXPR_STMT:
     gen_expr(node->lhs);
     return;
   }
@@ -246,6 +278,7 @@ void codegen(Function *prog) {
     assert(depth == 0);
   }
 
+  printf(".L.return:\n");
   // restore %rbp and %rsp
   printf("  mov %%rbp, %%rsp\n");
   printf("  pop %%rbp\n");
