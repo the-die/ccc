@@ -2,6 +2,8 @@
 
 static int depth;
 
+static void gen_expr(Node *node);
+
 static int count(void) {
   static int i = 1;
   return i++;
@@ -32,7 +34,8 @@ static int align_to(int n, int align) {
 // Compute the absolute address of a given node.
 // It's an error if a given node does not reside in memory.
 static void gen_addr(Node *node) {
-  if (node->kind == ND_VAR) {
+  switch (node->kind) {
+  case ND_VAR:
     // LEA—Load Effective Address
     // Computes the effective address of the second operand (the source operand) and stores it in
     // the first operand (destination operand). The source operand is a memory address (offset part)
@@ -42,6 +45,9 @@ static void gen_addr(Node *node) {
     // the instruction is determined by the chosen register; the address-size attribute is
     // determined by the attribute of the code segment.
     printf("  lea %d(%%rbp), %%rax\n", node->var->offset);
+    return;
+  case ND_DEREF:
+    gen_expr(node->lhs);
     return;
   }
 
@@ -79,9 +85,19 @@ static void gen_expr(Node *node) {
     // located in a general-purpose register or a memory location.
     printf("  neg %%rax\n");
     return;
+  // The value of the var node is the address of the var.
   case ND_VAR:
     gen_addr(node);
     printf("  mov (%%rax), %%rax\n");
+    return;
+  // "deref" "var"
+  case ND_DEREF:
+    gen_expr(node->lhs);
+    printf("  mov (%%rax), %%rax\n");
+    return;
+  // "addr" "var"
+  case ND_ADDR:
+    gen_addr(node->lhs);
     return;
   case ND_ASSIGN:
     gen_addr(node->lhs);
