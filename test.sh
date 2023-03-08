@@ -20,6 +20,62 @@
 # shell. It’s a common idiom to use env to find bash even if it’s been installed in another
 # directory: #!/usr/bin/env bash will find the first occurrence of bash in $PATH.
 
+
+# Here Documents
+#
+# This type of redirection instructs the shell to read input from the current source until a line
+# containing only word (with no trailing blanks) is seen. All of the lines read up to that point are
+# then used as the standard input (or file descriptor n if n is specified) for a command.
+#
+# The format of here-documents is:
+#
+# [n]<<[-]word
+#         here-document
+# delimiter
+#
+#
+# https://pubs.opengroup.org/onlinepubs/9699919799.2018edition/nframe.html
+#
+# 2.7.4 Here-Document
+#
+#
+# No parameter and variable expansion, command substitution, arithmetic expansion, or filename
+# expansion is performed on word. If any part of word is quoted, the delimiter is the result of
+# quote removal on word, and the lines in the here-document are not expanded. If word is unquoted,
+# all lines of the here-document are subjected to parameter expansion, command substitution, and
+# arithmetic expansion, the character sequence \newline is ignored, and ‘\’ must be used to quote
+# the characters ‘\’, ‘$’, and ‘`’.
+#
+# If the redirection operator is ‘<<-’, then all leading tab characters are stripped from input
+# lines and the line containing delimiter. This allows here-documents within shell scripts to be
+# indented in a natural fashion.
+#
+#
+# -x language
+# Specify explicitly the language for the following input files (rather than letting the compiler
+# choose a default based on the file name suffix). This option applies to all following input files
+# until the next -x option.
+#
+# -c
+# Compile or assemble the source files, but do not link. The linking stage simply is not done. The
+# ultimate output is in the form of an object file for each source file.
+# By default, the object file name for a source file is made by replacing the suffix ‘.c’, ‘.i’,
+# ‘.s’, etc., with ‘.o’.
+# Unrecognized input files, not requiring compilation or assembly, are ignored.
+#
+#
+# POSIX
+#
+# https://pubs.opengroup.org/onlinepubs/9699919799.2018edition/
+#
+# For utilities that use operands to represent files to be opened for either reading or writing, the
+# '-' operand should be used to mean only standard input (or standard output when it is clear from
+# context that an output file is being specified) or a file named -.
+cat <<EOF | gcc -xc -c -o tmp2.o -
+int ret3() { return 3; }
+int ret5() { return 5; }
+EOF
+
 assert() {
   expected="$1"
   input="$2"
@@ -38,7 +94,7 @@ assert() {
   #   If -o is not specified, the default is to put an executable file in a.out, the object file for
   #   source.suffix in source.o, its assembler file in source.s, a precompiled header file in
   #   source.suffix.gch, and all preprocessed C source on standard output.
-  gcc -static -o tmp tmp.s
+  gcc -static -o tmp tmp.s tmp2.o
   ./tmp
   actual="$?"
 
@@ -125,5 +181,8 @@ assert 7 '{ int x=3; int y=5; *(&y-2+1)=7; return x; }'
 assert 5 '{ int x=3; return (&x+2)-&x+3; }'
 assert 8 '{ int x, y; x=3; y=5; return x+y; }'
 assert 8 '{ int x=3, y=5; return x+y; }'
+
+assert 3 '{ return ret3(); }'
+assert 5 '{ return ret5(); }'
 
 echo OK

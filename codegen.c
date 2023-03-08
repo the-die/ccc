@@ -106,6 +106,15 @@ static void gen_expr(Node *node) {
     pop("%rdi");
     printf("  mov %%rax, (%%rdi)\n");
     return;
+  case ND_FUNCALL:
+    printf("  mov $0, %%rax\n");
+    // CALL—Call Procedure
+    // Saves procedure linking information on the stack and branches to the called procedure
+    // specified using the target operand. The target operand specifies the address of the first
+    // instruction in the called procedure. The operand can be an immediate value, a general-purpose
+    // register, or a memory location.
+    printf("  call %s\n", node->funcname);
+    return;
   }
 
   gen_expr(node->rhs);
