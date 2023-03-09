@@ -58,6 +58,8 @@ struct Obj {
 // Function
 typedef struct Function Function;
 struct Function {
+  Function *next;
+  char *name;
   Node *body;
   Obj *locals;
   int stack_size;
@@ -124,6 +126,7 @@ Function *parse(Token *tok);
 typedef enum {
   TY_INT,
   TY_PTR,
+  TY_FUNC,
 } TypeKind;
 
 struct Type {
@@ -134,12 +137,16 @@ struct Type {
 
   // Declaration
   Token *name;
+
+  // Function type
+  Type *return_ty;
 };
 
 extern Type *ty_int;
 
 bool is_integer(Type *ty);
 Type *pointer_to(Type *base);
+Type *func_type(Type *return_ty);
 void add_type(Node *node);
 
 //

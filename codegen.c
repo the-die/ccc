@@ -12,6 +12,7 @@ static int depth;
 // %r8      used to pass 5th argument to functions                        No
 // %r9      used to pass 6th argument to functions                        No
 static char *argreg[] = {"%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"};
+static Function *current_fn;
 
 static void gen_expr(Node *node);
 
@@ -309,7 +310,7 @@ static void gen_stmt(Node *node) {
     // Local symbols are defined and used within the assembler, but they are normally not saved in
     // object files. Thus, they are not visible when debugging. You may use the ‘-L’ option (see
     // Include Local Symbols) to retain the local symbols in the object files.
-    printf("  jmp .L.return\n");
+    printf("  jmp .L.return.%s\n", current_fn->name);
     return;
   case ND_EXPR_STMT:
     gen_expr(node->lhs);
@@ -321,14 +322,16 @@ static void gen_stmt(Node *node) {
 
 // Assign offsets to local variables.
 static void assign_lvar_offsets(Function *prog) {
-  int offset = 0;
-  for (Obj *var = prog->locals; var; var = var->next) {
-    offset += 8;
-    var->offset = -offset;
+  for (Function *fn = prog; fn; fn = fn->next) {
+    int offset = 0;
+    for (Obj *var = fn->locals; var; var = var->next) {
+      offset += 8;
+      var->offset = -offset;
+    }
+    // %rsp: The stack pointer holds the address of the byte with lowest address which is part of
+    // the stack. It is guaranteed to be 16-byte aligned at process entry.
+    fn->stack_size = align_to(offset, 16);
   }
-  // %rsp: The stack pointer holds the address of the byte with lowest address which is part of the
-  // stack. It is guaranteed to be 16-byte aligned at process entry.
-  prog->stack_size = align_to(offset, 16);
 }
 
 void codegen(Function *prog) {
@@ -338,46 +341,67 @@ void codegen(Function *prog) {
   // https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html
   // https://gitlab.com/x86-psABIs/x86-64-ABI
 
-  // Symbols are a central concept: the programmer uses symbols to name things,
-  // the linker uses symbols to link, and the debugger uses symbols to debug.
-  // Warning: as does not place symbols in the object file in the same order
-  // they were declared. This may break some debuggers.
+  for (Function *fn = prog; fn; fn = fn->next) {
+    // Symbols are a central concept: the programmer uses symbols to name things,
+    // the linker uses symbols to link, and the debugger uses symbols to debug.
+    // Warning: as does not place symbols in the object file in the same order
+    // they were declared. This may break some debuggers.
 
-  // .global symbol, .globl symbol
-  // .global makes the symbol visible to ld. If you define symbol in your
-  // partial program, its value is made available to other partial programs that
-  // are linked with it. Otherwise, symbol takes its attributes from a symbol of
-  // the same name from another file linked into the same program. Both
-  // spellings (‘.globl’ and ‘.global’) are accepted, for compatibility with
-  // other assemblers.
-  printf("  .globl main\n");
+    // .global symbol, .globl symbol
+    // .global makes the symbol visible to ld. If you define symbol in your
+    // partial program, its value is made available to other partial programs that
+    // are linked with it. Otherwise, symbol takes its attributes from a symbol of
+    // the same name from another file linked into the same program. Both
+    // spellings (‘.globl’ and ‘.global’) are accepted, for compatibility with
+    // other assemblers.
+    printf("  .globl %s\n", fn->name);
 
-  // A label is written as a symbol immediately followed by a colon ‘:’. The
-  // symbol then represents the current value of the active location counter,
-  // and is, for example, a suitable instruction operand. You are warned if you
-  // use the same symbol to represent two different locations: the first
-  // definition overrides any other definitions.
-  printf("main:\n");
+    // A label is written as a symbol immediately followed by a colon ‘:’. The
+    // symbol then represents the current value of the active location counter,
+    // and is, for example, a suitable instruction operand. You are warned if you
+    // use the same symbol to represent two different locations: the first
+    // definition overrides any other definitions.
+    printf("%s:\n", fn->name);
+    current_fn = fn;
 
-  // Prologue
-  // %rbp: callee-saved register; optionally used as frame pointer
-  printf("  push %%rbp\n");
-  // %rsp: stack pointer
-  printf("  mov %%rsp, %%rbp\n");
-  printf("  sub $%d, %%rsp\n", prog->stack_size);
+    // Prologue
+    // %rbp: callee-saved register; optionally used as frame pointer
+    printf("  push %%rbp\n");
+    // %rsp: stack pointer
+    printf("  mov %%rsp, %%rbp\n");
+    printf("  sub $%d, %%rsp\n", fn->stack_size);
 
-  gen_stmt(prog->body);
-  assert(depth == 0);
+    // Emit code
+    gen_stmt(fn->body);
+    assert(depth == 0);
 
-  printf(".L.return:\n");
-  // restore %rbp and %rsp
-  printf("  mov %%rbp, %%rsp\n");
-  printf("  pop %%rbp\n");
+    // Epilogue
+    printf(".L.return.%s:\n", fn->name);
+    // restore %rbp and %rsp
+    printf("  mov %%rbp, %%rsp\n");
+    printf("  pop %%rbp\n");
 
-  // RET—Return From Procedure
-  // Transfers program control to a return address located on the top of the
-  // stack. The address is usually placed on the stack by a CALL instruction,
-  // and the return is made to the instruction that follows the CALL
-  // instruction.
-  printf("  ret\n");
+    //   Position  |            Contents         |  Frame
+    // ------------+-----------------------------+----------
+    // 8n+16(%rbp) | memory argument eightbyte n |
+    //             |             . . .           | Previous
+    //   16(%rbp)  | memory argument eightbyte 0 |
+    // ------------+-----------------------------+----------
+    //   8(%rbp)   |       return address        |
+    //             +-----------------------------+
+    //   0(%rbp)   |     previous %rbp value     |
+    //             +-----------------------------+
+    //  -8(%rbp)   |         unspecified         | Current
+    //             |             . . .           |
+    //   0(%rsp)   |         variable size       |
+    //             +-----------------------------+
+    // -128(%rsp)  |           red zone          |
+
+    // RET—Return From Procedure
+    // Transfers program control to a return address located on the top of the
+    // stack. The address is usually placed on the stack by a CALL instruction,
+    // and the return is made to the instruction that follows the CALL
+    // instruction.
+    printf("  ret\n");
+  }
 }
