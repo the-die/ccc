@@ -1,6 +1,17 @@
 #include "chibicc.h"
 
 static int depth;
+// Register    Usage callee                                              saved
+// %rbx     callee-saved register                                         Yes
+// %rcx     used to pass 4th integer argument to functions                No
+// %rdx     used to pass 3rd argument to functions; 2nd return register   No
+// %rsp     stack pointer                                                 Yes
+// %rbp     callee-saved register; optionally used as frame pointer       Yes
+// %rsi     used to pass 2nd argument to functions                        No
+// %rdi     used to pass 1st argument to functions                        No
+// %r8      used to pass 5th argument to functions                        No
+// %r9      used to pass 6th argument to functions                        No
+static char *argreg[] = {"%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"};
 
 static void gen_expr(Node *node);
 
@@ -106,7 +117,17 @@ static void gen_expr(Node *node) {
     pop("%rdi");
     printf("  mov %%rax, (%%rdi)\n");
     return;
-  case ND_FUNCALL:
+  case ND_FUNCALL: {
+    int nargs = 0;
+    for (Node *arg = node->args; arg; arg = arg->next) {
+      gen_expr(arg);
+      push();
+      nargs++;
+    }
+
+    for (int i = nargs - 1; i >= 0; i--)
+      pop(argreg[i]);
+
     printf("  mov $0, %%rax\n");
     // CALL—Call Procedure
     // Saves procedure linking information on the stack and branches to the called procedure
@@ -115,6 +136,7 @@ static void gen_expr(Node *node) {
     // register, or a memory location.
     printf("  call %s\n", node->funcname);
     return;
+  }
   }
 
   gen_expr(node->rhs);
